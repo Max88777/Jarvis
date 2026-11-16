@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#020617">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>J.A.R.V.I.S. // Autonomous Neural HUD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --jarvis-cyan: #00f0ff;
+            --jarvis-blue: #0088ff;
+            --jarvis-amber: #ffaa00;
+            --jarvis-red: #ff2a55;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #020617;
+            color: #e0f7ff;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.12) 0%, rgba(0, 60, 120, 0.05) 45%, transparent 75%),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 28px 28px, 28px 28px;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .font-mono-tech {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Holographic Glass Panels */
+        .hud-panel {
+            background: rgba(4, 15, 35, 0.72);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 240, 255, 0.25);
+            box-shadow: 0 0 25px rgba(0, 240, 255, 0.08), inset 0 0 15px rgba(0, 240, 255, 0.05);
+        }
+
+        .hud-glow-text {
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.7), 0 0 20px rgba(0, 136, 255, 0.4);
+        }
+
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes spin-reverse {
+            from { transform: rotate(360deg); }
+            to { transform: rotate(0deg); }
+        }
+        @keyframes pulse-ring {
+            0%, 100% { transform: scale(1); opacity: 0.75; }
+            50% { transform: scale(1.04); opacity: 1; }
+        }
+
+        .animate-spin-slow { animation: spin-slow 26s linear infinite; }
+        .animate-spin-reverse { animation: spin-reverse 18s linear infinite; }
+        .animate-pulse-ring { animation: pulse-ring 3s ease-in-out infinite; }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: rgba(2, 6, 23, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.4); border-radius: 9999px; }
+
+        .scanlines::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0, 240, 255, 0.015) 51%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 40;
+        }
+
+        @keyframes hud-boot-expand {
+        0% { transform: scale(0.92); opacity: 0.2; filter: brightness(2.2); }
+        100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+    }
+    .hud-wakeup-anim {
+        animation: hud-boot-expand 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+</style>
+</head>
+<body class="min-h-screen flex flex-col justify-between select-none scanlines">
+    
+    <!-- BOOT OVERLAY (Versteckt das HUD komplett, bis der Ladevorgang fertig ist) -->
+    <div id="autoStartOverlay" class="fixed inset-0 bg-[#020617] z-50 flex flex-col items-center justify-center p-6 text-center transition-opacity duration-700">
+        <div class="relative w-20 h-20 sm:w-24 sm:h-24 mb-6 flex items-center justify-center rounded-full border border-cyan-400/60 bg-cyan-950/50">
+            <svg class="absolute inset-0 w-full h-full animate-spin-slow text-cyan-400/50" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="18 10" />
+            </svg>
+            <h1 class="font-orbitron font-bold text-2xl tracking-wider text-cyan-300 hud-glow-text">J</h1>
+        </div>
+
+        <h2 id="autoStartTitle" class="font-orbitron text-sm sm:text-base tracking-widest uppercase text-cyan-300 mt-2 hud-glow-text">J.A.R.V.I.S. // AUTONOME SPRACH-KI</h2>
+        
+        <p id="autoStartSub" class="text-xs sm:text-sm font-mono-tech text-cyan-200/70 mt-4 max-w-md leading-relaxed">
+            Initialisiere Systemumgebung. Sobald Sie <strong class="text-cyan-300">„Jarvis“</strong> sagen oder die App berühren, übernimmt die KI das Kommando.
+        </p>
+        
+        <!-- BOOT SEQUENCE CONTAINER -->
+        <div id="bootSequence" class="hidden flex-col items-center justify-center w-full max-w-sm mt-8">
+            <div class="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-cyan-500/30 mb-3 shadow-[0_0_10px_rgba(0,240,255,0.1)]">
+                <div id="bootProgressBar" class="h-full bg-gradient-to-r from-cyan-600 to-cyan-300 w-0 transition-all duration-200"></div>
+            </div>
+            <div id="bootLog" class="text-[10px] sm:text-xs font-mono-tech text-cyan-400 text-left w-full h-[100px] overflow-hidden flex flex-col justify-end space-y-1">
+                <!-- Logs will appear here -->
+            </div>
+        </div>
+
+        <div id="micWatcherHint" class="mt-8 flex items-center gap-2 text-[11px] font-mono-tech text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span>Warte auf Systemfreigabe...</span>
+        </div>
+    </div>
+
+    <!-- TOP STATUS BAR -->
+    <header class="w-full px-3 pt-3 pb-2 z-20">
+        <div class="max-w-5xl mx-auto hud-panel rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+                <div class="relative w-9 h-9 flex items-center justify-center rounded-full border border-cyan-400/60 bg-cyan-950/50">
+                    <span id="statusDot" class="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_12px_#10b981] transition-all duration-300"></span>
+                    <svg class="absolute inset-0 w-full h-full animate-spin-slow text-cyan-400/50" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="18 10" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-orbitron font-bold text-base sm:text-lg tracking-wider text-cyan-300 hud-glow-text">J.A.R.V.I.S.</h1>
+                        <span id="protocolBadge" class="text-[10px] font-mono-tech uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+                            AUTONOM
+                        </span>
+                    </div>
+                    <p class="text-xs text-cyan-100/60 tracking-widest uppercase">Voice-Lock & Background-Netzwerk</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div class="hidden sm:flex flex-col items-end font-mono-tech text-[11px] text-cyan-300/80 pr-2 border-r border-cyan-500/20">
+                    <span id="hudClock">00:00:00 CET</span>
+                    <span id="micTelemetry" class="text-emerald-400">VOICE-LOCK: AKTIV</span>
+                </div>
+
+                <button id="voiceLockBtn" onclick="toggleVoiceLock()" class="px-3 py-1.5 rounded-xl border border-cyan-400/40 bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 transition flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase text-cyan-200" title="Stimm-Filter">
+                    <svg class="w-4 h-4 currentColor" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+                    </svg>
+                    <span id="voiceLockLabel">Stimm-Filter: AN</span>
+                </button>
+
+                <button onclick="openModal('settingsModal')" class="p-2 rounded-xl border border-cyan-400/30 bg-slate-900/70 hover:bg-cyan-950/60 text-cyan-300 active:scale-95 transition" title="Einstellungen">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN HUD WORKSPACE -->
+    <main class="flex-1 w-full max-w-5xl mx-auto px-3 py-2 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center z-10">
+
+        <!-- LEFT COLUMN: ARC REACTOR CORE & FREQUENCY VISUALIZER -->
+        <section class="lg:col-span-7 flex flex-col items-center justify-center relative py-2">
+            
+            <div class="w-full flex justify-between items-center px-2 mb-1 text-[11px] font-mono-tech text-cyan-400/70">
+                <span>AUTONOMOUS CORE: <strong class="text-cyan-300">100.0%</strong></span>
+                <span>VOICE STREAM: <strong class="text-emerald-400">REIN</strong></span>
+                <span>LATENCY: <strong class="text-cyan-300">18ms</strong></span>
+            </div>
+
+            <div class="relative w-64 h-64 sm:w-80 sm:h-80 flex items-center justify-center my-1">
+                
+                <svg class="absolute inset-0 w-full h-full animate-spin-slow text-cyan-400/35 pointer-events-none" viewBox="0 0 300 300">
+                    <circle cx="150" cy="150" r="142" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6 8" />
+                    <circle cx="150" cy="150" r="134" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="45 25 10 25" />
+                    <path d="M 150 4 L 150 16 M 150 284 L 150 296 M 4 150 L 16 150 M 284 150 L 296 150" stroke="currentColor" stroke-width="3"/>
+                </svg>
+
+                <svg class="absolute inset-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] animate-spin-reverse text-cyan-300/50 pointer-events-none" viewBox="0 0 300 300">
+                    <circle cx="150" cy="150" r="125" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="80 40" />
+                    <circle cx="150" cy="150" r="112" fill="none" stroke="currentColor" stroke-width="5" stroke-dasharray="4 14" />
+                    <polygon points="150,18 145,28 155,28" fill="currentColor" />
+                    <polygon points="150,282 145,272 155,272" fill="currentColor" />
+                </svg>
+
+                <canvas id="visualizerCanvas" class="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
+
+                <!-- Core Display -->
+                <div onclick="manualWakeUp()" class="relative z-20 w-32 h-32 sm:w-36 sm:h-36 rounded-full flex flex-col items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-transform duration-200"
+                    style="background: radial-gradient(circle, rgba(0,240,255,0.28) 0%, rgba(0,100,200,0.15) 60%, rgba(2,12,27,0.85) 100%); box-shadow: 0 0 35px rgba(0,240,255,0.35), inset 0 0 20px rgba(0,240,255,0.4); border: 2px solid rgba(0,240,255,0.7);" title="Manuell aufwecken">
+                    
+                    <div class="text-cyan-200 pointer-events-none">
+                        <svg class="w-10 h-10 sm:w-12 sm:h-12 drop-shadow-[0_0_10px_rgba(0,240,255,0.9)] animate-pulse" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+                        </svg>
+                    </div>
+                    <span id="coreStatusLabel" class="mt-1 font-orbitron text-[10px] sm:text-xs font-bold tracking-widest uppercase text-cyan-200 hud-glow-text pointer-events-none">
+                        HÖRT ZU
+                    </span>
+                </div>
+            </div>
+
+            <!-- Live Speech Recognition Subtitle Box -->
+            <div class="w-full max-w-md mt-2 px-3 py-2.5 rounded-xl hud-panel text-center min-h-[64px] flex flex-col items-center justify-center">
+                <span id="stateHint" class="text-[11px] font-mono-tech uppercase tracking-widest text-emerald-400 mb-0.5">
+                    Autonomer Modus aktiv – Sprechen Sie einfach frei
+                </span>
+                <p id="liveTranscript" class="text-sm sm:text-base font-medium text-cyan-100 line-clamp-2 italic">
+                    „Jarvis, wie ist der Systemstatus?“
+                </p>
+            </div>
+
+            <!-- Background-Check Progress Panel -->
+            <div id="bgCheckPanel" class="w-full max-w-md mt-2.5 p-3 rounded-xl hud-panel border border-cyan-400/40 hidden flex-col gap-2">
+                <div class="flex items-center justify-between text-[11px] font-mono-tech text-cyan-300">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                        <strong id="bgCheckTitle">STARK INT. // BACKGROUND-CHECK LÄUFT</strong>
+                    </span>
+                    <span id="bgCheckPercent" class="text-amber-300 font-bold">0%</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-cyan-500/30">
+                    <div id="bgCheckBar" class="h-full bg-gradient-to-r from-cyan-400 to-amber-400 transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: TERMINAL LOG -->
+        <section class="lg:col-span-5 w-full flex flex-col hud-panel rounded-2xl overflow-hidden h-[360px] sm:h-[440px]">
+            <div class="px-4 py-2.5 border-b border-cyan-500/25 bg-slate-950/60 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <h2 class="font-orbitron text-xs tracking-widest uppercase text-cyan-300">Autonomes Sprachprotokoll</h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="stopSpeechBtn" onclick="stopSpeaking()" class="hidden px-2 py-0.5 rounded bg-rose-500/20 border border-rose-400/50 text-[11px] font-mono-tech text-rose-300 hover:bg-rose-500/30">
+                        STUMM
+                    </button>
+                    <button onclick="clearChatLog()" class="text-[11px] font-mono-tech text-cyan-400/60 hover:text-cyan-300 uppercase">
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            <div id="chatContainer" class="flex-1 p-3.5 overflow-y-auto space-y-3 text-sm">
+                <div class="p-3 rounded-xl bg-cyan-950/40 border-l-2 border-emerald-400 text-cyan-100">
+                    <div class="flex justify-between items-center text-[10px] font-mono-tech text-emerald-400 mb-1">
+                        <span>J.A.R.V.I.S. // FULL-VOICE-AUTONOMY</span>
+                        <span>KEINE KLICKS NÖTIG</span>
+                    </div>
+                    <p class="leading-relaxed">
+                        Das System hört vollautomatisch zu, Sir. Ihre eigene Stimme wird durch die Audio-Trennung niemals über die Lautsprecher ausgegeben. Sagen Sie einfach <strong>„Jarvis...“</strong> gefolgt von Ihrer Direktive.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settingsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden items-center justify-center p-4">
+        <div class="w-full max-w-md hud-panel rounded-2xl p-5 border border-cyan-400/50 space-y-4">
+            <div class="flex items-center justify-between border-b border-cyan-500/25 pb-3">
+                <h3 class="font-orbitron text-base text-cyan-300 tracking-wider uppercase">J.A.R.V.I.S. Konfiguration</h3>
+                <button onclick="closeModal('settingsModal')" class="text-cyan-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <div class="space-y-3 text-sm">
+                <div>
+                    <label class="block text-xs font-mono-tech uppercase text-cyan-400 mb-1">Wie soll Jarvis Sie ansprechen?</label>
+                    <input id="honorificInput" type="text" value="Sir" onchange="saveSettings()" class="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-3 py-2 text-cyan-100 focus:outline-none" />
+                </div>
+                <div>
+                    <label class="block text-xs font-mono-tech uppercase text-cyan-400 mb-1">Stimmcharakter (Gemini Neural)</label>
+                    <select id="voiceNameSelect" onchange="saveSettings()" class="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-3 py-2 text-cyan-100 focus:outline-none">
+                        <option value="Orus" selected>Orus (Souverän & Britischer Butler-Stil)</option>
+                        <option value="Charon">Charon (Tief, ruhig & analytisch)</option>
+                        <option value="Fenrir">Fenrir (Dynamisch & markant)</option>
+                        <option value="Puck">Puck (Lebhaft & freundlich)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="pt-2 flex justify-end">
+                <button onclick="closeModal('settingsModal')" class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-orbitron font-bold text-xs uppercase">
+                    Schließen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = "";
+        
+        const state = {
+            initialized: false,
+            systemAwake: false,
+            isListening: false,
+            isStartingRecognition: false,
+            isSpeaking: false,
+            isProcessing: false,
+            voiceLockActive: true,
+            honorific: "Sir",
+            defaultCity: "Berlin", // Aus deinem Python-Skript
+            ttsEngine: "gemini",
+            voiceName: "Orus",
+            combatMode: false,
+            chatHistory: [],
+            awaitingFollowUp: false,
+            followUpTimer: null
+        };
+
+        let audioCtx = null;
+        let micAnalyser = null;
+        let ttsAnalyser = null;
+        let micStream = null;
+        let micSource = null;
+        let currentAudioSource = null;
+        let recognition = null;
+        let recognitionRestartTimer = null;
+        let forceResetTimer = null;
+        let wakeLock = null;
+
+        // --- RETRY LOGIC FOR API CALLS ---
+        // Verhindert das Einfrieren bei "Too Many Requests" (Rate Limits) der KI
+        async function fetchWithRetry(url, options, maxRetries = 4) {
+            let delay = 1000;
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const res = await fetch(url, options);
+                    if (!res.ok) {
+                        if (res.status === 429) { // Rate limit hit
+                            await new Promise(r => setTimeout(r, delay));
+                            delay *= 2;
+                            continue;
+                        }
+                        throw new Error(`HTTP ${res.status}`);
+                    }
+                    return await res.json();
+                } catch (e) {
+                    if (i === maxRetries - 1) throw e;
+                    await new Promise(r => setTimeout(r, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        // UI Toggle Function
+        function toggleVoiceLock() {
+            state.voiceLockActive = !state.voiceLockActive;
+            const btn = document.getElementById('voiceLockBtn');
+            const label = document.getElementById('voiceLockLabel');
+            if (state.voiceLockActive) {
+                btn.className = "px-3 py-1.5 rounded-xl border border-cyan-400/40 bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 transition flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase text-cyan-200";
+                label.textContent = "Stimm-Filter: AN";
+            } else {
+                btn.className = "px-3 py-1.5 rounded-xl border border-rose-400/40 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 transition flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase text-rose-200";
+                label.textContent = "Stimm-Filter: AUS";
+            }
+        }
+
+        // --- SCREEN WAKE LOCK (Für Handy & Laptop) ---
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        console.log('Wake Lock released');
+                    });
+                }
+            } catch (err) {
+                console.log(`Wake Lock Error: ${err.name}, ${err.message}`);
+            }
+        }
+
+        // Re-aktivieren des Wake Locks
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                await requestWakeLock();
+            }
+        });
+        // ---------------------------------------------
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('hudClock').textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + " CET";
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); document.getElementById(id).classList.add('flex'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
+
+        function saveSettings() {
+            state.honorific = document.getElementById('honorificInput').value.trim() || "Sir";
+            state.voiceName = document.getElementById('voiceNameSelect').value;
+        }
+
+        function ensureAudioContext() {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContextClass();
+                
+                micAnalyser = audioCtx.createAnalyser();
+                micAnalyser.fftSize = 128;
+                micAnalyser.smoothingTimeConstant = 0.82;
+
+                ttsAnalyser = audioCtx.createAnalyser();
+                ttsAnalyser.fftSize = 128;
+                ttsAnalyser.smoothingTimeConstant = 0.82;
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playHudSound(type) {
+            try {
+                ensureAudioContext();
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'boot') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+                    gain.gain.setValueAtTime(0.01, now);
+                    gain.gain.linearRampToValueAtTime(0.18, now + 0.2);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                    osc.start(now);
+                    osc.stop(now + 0.5);
+                } else if (type === 'wake') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(587.33, now);
+                    osc.frequency.setValueAtTime(880, now + 0.09);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                } else if (type === 'processing') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(440, now);
+                    osc.frequency.linearRampToValueAtTime(880, now + 0.1);
+                    osc.frequency.linearRampToValueAtTime(440, now + 0.2);
+                    gain.gain.setValueAtTime(0.05, now);
+                    gain.gain.linearRampToValueAtTime(0.001, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                }
+            } catch (e) {}
+        }
+
+        // Visualizer Canvas
+        const canvas = document.getElementById('visualizerCanvas');
+        const ctx = canvas.getContext('2d');
+        let rotationAngle = 0;
+
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawArcReactor() {
+            const width = canvas.width / window.devicePixelRatio;
+            const height = canvas.height / window.devicePixelRatio;
+            const cx = width / 2;
+            const cy = height / 2;
+            const baseRadius = Math.min(width, height) * 0.28;
+
+            ctx.clearRect(0, 0, width, height);
+
+            let freqData = new Uint8Array(64);
+            let avgEnergy = 0;
+            const activeAnalyser = state.isSpeaking ? ttsAnalyser : (state.isListening ? micAnalyser : null);
+
+            if (activeAnalyser && (state.isSpeaking || state.isListening)) {
+                activeAnalyser.getByteFrequencyData(freqData);
+                let sum = 0;
+                for (let i = 0; i < freqData.length; i++) sum += freqData[i];
+                avgEnergy = sum / freqData.length;
+            } else if (state.isSpeaking) {
+                avgEnergy = 65 + Math.sin(Date.now() * 0.015) * 45;
+                for (let i = 0; i < 64; i++) {
+                    freqData[i] = Math.max(10, avgEnergy + Math.sin(i * 0.5 + Date.now() * 0.02) * 40);
+                }
+            }
+
+            const primaryColor = state.isSpeaking ? '0, 240, 255' : '0, 185, 255';
+            rotationAngle += state.isSpeaking ? 0.025 : 0.006;
+
+            const dynamicRadius = baseRadius + (avgEnergy * 0.18);
+            const grad = ctx.createRadialGradient(cx, cy, baseRadius * 0.5, cx, cy, dynamicRadius * 1.45);
+            grad.addColorStop(0, `rgba(${primaryColor}, ${0.22 + (avgEnergy / 500)})`);
+            grad.addColorStop(1, `rgba(${primaryColor}, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(cx, cy, dynamicRadius * 1.45, 0, Math.PI * 2);
+            ctx.fill();
+
+            const numBars = 48;
+            for (let i = 0; i < numBars; i++) {
+                const angle = (i / numBars) * Math.PI * 2 + rotationAngle;
+                const val = freqData[i % 32] || 6;
+                const barLen = 6 + (val / 255) * (baseRadius * 0.55);
+
+                const x1 = cx + Math.cos(angle) * (baseRadius * 1.02);
+                const y1 = cy + Math.sin(angle) * (baseRadius * 1.02);
+                const x2 = cx + Math.cos(angle) * (baseRadius * 1.02 + barLen);
+                const y2 = cy + Math.sin(angle) * (baseRadius * 1.02 + barLen);
+
+                ctx.strokeStyle = `rgba(${primaryColor}, ${0.35 + (val / 350)})`;
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+
+            requestAnimationFrame(drawArcReactor);
+        }
+
+        async function setupMicrophoneStream() {
+            try {
+                ensureAudioContext();
+                if (!micStream) {
+                    micStream = await navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                    });
+                    micSource = audioCtx.createMediaStreamSource(micStream);
+                    // Isolated strictly to micAnalyser - NEVER connected to speakers!
+                    micSource.connect(micAnalyser);
+                }
+                return true;
+            } catch (err) {
+                console.error("Mic Access Error:", err);
+                const subEl = document.getElementById('autoStartSub');
+                if(subEl) {
+                    if (window.isSecureContext === false || window.location.protocol === 'file:' || window.location.protocol.startsWith('content')) {
+                        subEl.innerHTML = `<span class="text-rose-400 font-bold">Sicherheitsblockade des Browsers!</span><br><br>Lokale Dateien (<span class="font-mono-tech text-cyan-300">content://</span> oder <span class="font-mono-tech text-cyan-300">file://</span>) dürfen auf Handys nicht aufs Mikrofon zugreifen.<br><br>Lösung: Öffnen Sie die App über einen echten HTTPS-Weblink.`;
+                    } else {
+                        subEl.innerHTML = `<span class="text-rose-400 font-bold">Mikrofon-Zugriff verweigert!</span><br>Bitte erlauben Sie das Mikrofon in den Browser-Einstellungen und laden Sie die Seite neu.`;
+                    }
+                }
+                return false;
+            }
+        }
+
+        function setMicTrackEnabled(enabled) {
+            if (micStream) {
+                micStream.getAudioTracks().forEach(track => { track.enabled = enabled; });
+            }
+        }
+
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) return null;
+
+            const rec = new SpeechRecognition();
+            rec.lang = 'de-DE';
+            rec.continuous = true;
+            rec.interimResults = true;
+            rec.maxAlternatives = 1;
+
+            rec.onstart = () => {
+                state.isStartingRecognition = false;
+                state.isListening = true;
+                document.getElementById('coreStatusLabel').textContent = "HÖRT ZU";
+            };
+
+            rec.onresult = (event) => {
+                if (state.isSpeaking || state.isProcessing) return;
+
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                if (finalTranscript.trim()) {
+                    processSpokenInput(finalTranscript.trim());
+                }
+            };
+
+            rec.onerror = () => { state.isStartingRecognition = false; };
+            rec.onend = () => {
+                clearTimeout(forceResetTimer);
+                state.isStartingRecognition = false;
+                state.isListening = false; // CRITICAL FIX FÜR HANDYS
+                if (state.initialized && !state.isSpeaking && !state.isProcessing) {
+                    clearTimeout(recognitionRestartTimer);
+                    // Aggressiver Neustart, falls der Browser es heimlich beendet
+                    recognitionRestartTimer = setTimeout(() => { safeStartRecognition(); }, 150);
+                }
+            };
+
+            return rec;
+        }
+
+        function safeStartRecognition() {
+            clearTimeout(recognitionRestartTimer);
+            if (!state.initialized || !recognition) return;
+            if (state.isSpeaking || state.isProcessing) return;
+            if (state.isListening || state.isStartingRecognition) return;
+
+            try {
+                state.isStartingRecognition = true;
+                recognition.start();
+            } catch (e) {
+                console.warn("Mikrofon-Neustart blockiert. Erzwungener Engine-Reset...", e);
+                state.isStartingRecognition = false;
+                state.isListening = false;
+                try { recognition.abort(); } catch(err){}
+                
+                // CRITICAL FIX: Zerstört die kaputte Spracherkennung und baut sie komplett neu auf
+                recognition = initSpeechRecognition();
+                recognitionRestartTimer = setTimeout(() => { safeStartRecognition(); }, 300);
+            }
+        }
+
+        function safeStopRecognition() {
+            clearTimeout(recognitionRestartTimer);
+            if (!recognition) return;
+            if (state.isListening || state.isStartingRecognition) {
+                try {
+                    // .abort() ist auf Handys zuverlässiger als .stop(), um Hänger zu vermeiden
+                    recognition.abort(); 
+                } catch (e) {}
+
+                // Failsafe: Falls Android Chrome den Stop-Befehl verschluckt (onend feuert nicht)
+                clearTimeout(forceResetTimer);
+                forceResetTimer = setTimeout(() => {
+                    state.isStartingRecognition = false;
+                    state.isListening = false;
+                    if (state.initialized && !state.isSpeaking && !state.isProcessing) {
+                        safeStartRecognition();
+                    }
+                }, 800);
+            }
+        }
+        
+        // MANUELLER OVERRIDE FÜR HANDYS
+        function manualWakeUp() {
+            if (state.isSpeaking) stopSpeaking();
+            ensureAudioContext();
+            state.initialized = true;
+            
+            if (!recognition) recognition = initSpeechRecognition();
+            
+            safeStopRecognition(); // Beende hängende Prozesse
+            setTimeout(() => {
+                safeStartRecognition();
+                playHudSound('wake');
+                document.getElementById('coreStatusLabel').textContent = "HÖRT ZU";
+                document.getElementById('stateHint').textContent = "Manuelle Mikrofon-Aktivierung";
+                const msg = "[System: Mikrofon-Verbindung manuell rekalibriert]";
+                appendMessage('jarvis', msg);
+            }, 100);
+        }
+
+        async function processSpokenInput(rawText) {
+            const lower = rawText.toLowerCase();
+            const wakeVariants = ['jarvis', 'djarvis', 'charvis', 'javis', 'scharvis', 'jarwis', 'jervis'];
+            
+            let foundWakeWord = null;
+            let wakeIndex = -1;
+
+            for (const variant of wakeVariants) {
+                const idx = lower.indexOf(variant);
+                if (idx !== -1) {
+                    foundWakeWord = variant;
+                    wakeIndex = idx;
+                    break;
+                }
+            }
+
+            let commandText = "";
+
+            if (foundWakeWord !== null) {
+                commandText = rawText.slice(wakeIndex + foundWakeWord.length).replace(/^[,.\s!?:;-]+/, '').trim();
+                state.awaitingFollowUp = false;
+            } else if (state.awaitingFollowUp) {
+                commandText = rawText.trim();
+                if (commandText.length < 2) return;
+            } else {
+                // Visuelles Feedback: Er hört die Worte, aber das Wachwort (oder der Follow-Up Timer) fehlt
+                document.getElementById('liveTranscript').textContent = `[Wachwort "Jarvis" fehlt] "${rawText}"`;
+                return;
+            }
+
+            document.getElementById('liveTranscript').textContent = `„${rawText}“`;
+
+            const isBgCheck = lower.includes('background') || lower.includes('backgroundcheck') || lower.includes('hintergrundcheck') || lower.includes('überprüfe');
+            const quickChecks = ["bist du da", "hörst du mich", "hallo", "test", "bist du wach"];
+
+            if (commandText.length < 2 || quickChecks.includes(commandText.toLowerCase())) {
+                state.systemAwake = true;
+                playHudSound('wake');
+                
+                if (isBgCheck) {
+                    await executeVoiceBackgroundCheck(commandText || rawText);
+                } else {
+                    const readyMsg = `Ja, ${state.honorific}, ich bin online und höre Ihnen zu. Wie kann ich behilflich sein?`;
+                    appendMessage('jarvis', readyMsg);
+                    speakResponse(readyMsg);
+                }
+                return;
+            }
+
+            state.systemAwake = true;
+            playHudSound('wake');
+            
+            if (["beenden", "schlafen", "ausschalten", "exit"].some(w => lower.includes(w))) {
+                const exitMsg = "Sehr wohl, Sir. Ich fahre die Systeme herunter und wechsle in den Ruhemodus.";
+                appendMessage('jarvis', exitMsg);
+                speakResponse(exitMsg);
+                setTimeout(() => {
+                    document.getElementById('coreStatusLabel').textContent = "STAND-BY";
+                    document.getElementById('stateHint').textContent = "System pausiert";
+                    state.isListening = false;
+                    safeStopRecognition();
+                }, 3000);
+                return;
+            }
+
+            let extraContext = "";
+            if (lower.includes("wetter") || lower.includes("regen") || lower.includes("temperatur")) {
+                const stadt = extractCity(lower);
+                appendMessage('jarvis', `[System: Rufe meteorologische Daten für ${stadt} ab...]`);
+                extraContext = await getWeatherData(stadt);
+            } else if (lower.includes("nachrichten") || lower.includes("news") || lower.includes("schlagzeilen")) {
+                appendMessage('jarvis', `[System: Lade globale Schlagzeilen herunter...]`);
+                extraContext = "Aktuelle Schlagzeilen:\n" + await getRSSFeed("https://www.tagesschau.de/xml/rss2/", 5);
+            } else if (lower.includes("spiel") || lower.includes("games") || lower.includes("gaming")) {
+                appendMessage('jarvis', `[System: Synchronisiere Gaming-Netzwerke...]`);
+                extraContext = "Aktuelle Gaming-News:\n" + await getRSSFeed("https://www.gamestar.de/news/rss/news.rss", 6);
+            }
+
+            sendToJarvisBrain(commandText, false, extraContext);
+        }
+
+        function extractCity(text) {
+            const match = text.match(/in\s+([a-zA-ZäöüÄÖÜß]+)/i);
+            return match ? match[1].charAt(0).toUpperCase() + match[1].slice(1) : state.defaultCity;
+        }
+
+        async function getWeatherData(city) {
+            try {
+                const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1&language=de`);
+                const geo = await geoRes.json();
+                if (!geo.results || geo.results.length === 0) return `Keine Wetterdaten für ${city} gefunden.`;
+                const loc = geo.results[0];
+                const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`);
+                const w = await wRes.json();
+                return `Wetterdaten für ${loc.name}: Aktuell ${w.current.temperature_2m}°C, gefühlt ${w.current.apparent_temperature}°C, Wind: ${w.current.wind_speed_10m} km/h (WMO-Code: ${w.current.weather_code})`;
+            } catch (e) { return "Wetterdienste aktuell nicht erreichbar."; }
+        }
+
+        async function getRSSFeed(url, maxItems = 5) {
+            try {
+                const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+                const data = await res.json();
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(data.contents, "text/xml");
+                const items = Array.from(xml.querySelectorAll("item")).slice(0, maxItems);
+                return items.map(item => "- " + item.querySelector("title").textContent).join("\n");
+            } catch (e) { return "News-Feeds aktuell nicht abrufbar."; }
+        }
+
+        async function executeVoiceBackgroundCheck(userQuery) {
+            appendMessage('user', userQuery);
+            const panel = document.getElementById('bgCheckPanel');
+            const percentEl = document.getElementById('bgCheckPercent');
+            const barEl = document.getElementById('bgCheckBar');
+
+            panel.classList.remove('hidden');
+            panel.classList.add('flex');
+            barEl.style.width = '25%';
+            percentEl.textContent = '25%';
+            await new Promise(r => setTimeout(r, 400));
+            barEl.style.width = '75%';
+            percentEl.textContent = '75%';
+            await new Promise(r => setTimeout(r, 400));
+            barEl.style.width = '100%';
+            percentEl.textContent = '100%';
+
+            setTimeout(() => { panel.classList.add('hidden'); panel.classList.remove('flex'); }, 3000);
+
+            const prompt = `Führe als J.A.R.V.I.S. einen Background-Check aus zu: "${userQuery}". Antworte knapp und präzise für ${state.honorific}.`;
+            await sendToJarvisBrain(prompt, true);
+        }
+
+        async function sendToJarvisBrain(userText, skipUserLog = false, extraContext = "") {
+            if (!userText || state.isProcessing) return;
+
+            if (!skipUserLog) {
+                appendMessage('user', userText);
+            }
+            state.isProcessing = true;
+            
+            // HINWEIS: Status-Änderung und Sound beim Suchen
+            document.getElementById('coreStatusLabel').textContent = "SUCHT...";
+            playHudSound('processing');
+
+            const now = new Date();
+            let contextString = `Aktuelles Datum/Uhrzeit: ${now.toLocaleDateString('de-DE')} ${now.toLocaleTimeString('de-DE')} Uhr\n`;
+            if (extraContext) {
+                contextString += `Nutze diese Live-Daten zwingend für deine Antwort:\n${extraContext}\n\n`;
+            }
+
+            const systemPrompt = `Du bist J.A.R.V.I.S., die hochentwickelte, autonome KI von Tony Stark. Sprich den Nutzer immer mit "${state.honorific}" an.
+Verhalte dich wie eine echte, denkende Persönlichkeit: britisch-höflich, scharfsinnig und hochintelligent.
+
+WICHTIGE VERHALTENSREGELN:
+1. PROAKTIV: Reagiere direkt und menschlich. Wenn der Nutzer nachdenkt oder ein Problem schildert, biete proaktiv Lösungsansätze an (z.B. "Soll ich das für Sie analysieren, Sir?"). Beziehe dich auf den vorherigen Dialog.
+2. MATHEMATIK: Wenn eine Matheaufgabe gestellt wird, MUSS diese gelöst werden. Erkläre den Rechenweg Schritt für Schritt logisch nachvollziehbar in natürlicher Sprache.
+3. SPRACHAUSGABE: Verwende KEINE Markdown-Sterne, Rauten oder Aufzählungszeichen. Dein Text wird per Sprache ausgegeben. Formuliere fließend und natürlich.
+${contextString}`;
+
+            state.chatHistory.push({ role: "user", parts: [{ text: userText }] });
+            
+            // Verhindert API-Abstürze bei langen Gesprächen (Gemini verlangt immer 'user' als ersten Eintrag)
+            if (state.chatHistory.length > 10) {
+                let sliceStart = state.chatHistory.length - 10;
+                if (state.chatHistory[sliceStart].role !== 'user') sliceStart++;
+                state.chatHistory = state.chatHistory.slice(sliceStart);
+            }
+
+            try {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                const result = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: state.chatHistory,
+                        tools: [{ "google_search": {} }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+                
+                const candidate = result.candidates?.[0];
+                let replyText = candidate?.content?.parts?.[0]?.text || `Verzeihung, ${state.honorific}, Verbindung unterbrochen.`;
+                let cleanSpeechText = replyText.replace(/[*#_`~]/g, '').trim();
+
+                state.chatHistory.push({ role: "model", parts: [{ text: cleanSpeechText }] });
+                state.isProcessing = false;
+                appendMessage('jarvis', cleanSpeechText);
+                await speakResponse(cleanSpeechText);
+            } catch (e) {
+                state.isProcessing = false;
+                const errText = `Entschuldigung, ${state.honorific}, ein kleiner Subraum-Fehler.`;
+                appendMessage('jarvis', errText);
+                await speakResponse(errText);
+            }
+        }
+
+        function cancelActiveAudio() {
+            clearTimeout(recognitionRestartTimer);
+            if (currentAudioSource) {
+                try { currentAudioSource.onended = null; currentAudioSource.stop(); } catch (e) {}
+                currentAudioSource = null;
+            }
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        }
+
+        async function speakResponse(text) {
+            if (!text) {
+                finishSpeaking();
+                return;
+            }
+            cancelActiveAudio();
+            state.isSpeaking = true;
+            setMicTrackEnabled(false);
+            safeStopRecognition();
+
+            if (state.ttsEngine === 'gemini') {
+                try {
+                    await speakWithGeminiTTS(text);
+                    return;
+                } catch (e) {
+                    // Stiller Fallback bei KI-Stimm-Fehler
+                    console.error("Neural TTS Error:", e);
+                }
+            }
+            
+            try {
+                speakWithBrowserTTS(text);
+            } catch(e) {
+                finishSpeaking(); // Notfall-Unlock
+            }
+        }
+
+        async function speakWithGeminiTTS(text) {
+            ensureAudioContext();
+            // WICHTIG FÜR HANDYS: Stelle sicher, dass der AudioContext nach dem Warten noch aktiv ist
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
+            
+            const payload = {
+                contents: [{ parts: [{ text: `Lies dies als J.A.R.V.I.S. natürlich vor: ${text}` }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: state.voiceName } } }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+            const result = await fetchWithRetry(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            const part = result?.candidates?.[0]?.content?.parts?.[0];
+            const audioData = part?.inlineData?.data;
+            if (!audioData) throw new Error("Kein Audio generiert");
+
+            const mimeType = part?.inlineData?.mimeType || "";
+            const match = mimeType.match(/rate=(\d+)/);
+            const sampleRate = match ? parseInt(match[1], 10) : 24000;
+
+            const pcmBuffer = base64ToArrayBuffer(audioData);
+            const pcm16 = new Int16Array(pcmBuffer);
+            const audioBuffer = audioCtx.createBuffer(1, pcm16.length, sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+            for (let i = 0; i < pcm16.length; i++) channelData[i] = pcm16[i] / 32768.0;
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ttsAnalyser);
+            source.connect(audioCtx.destination);
+
+            currentAudioSource = source;
+            
+            // Failsafe: Falls der Browser das "onended"-Ereignis verschluckt, zwingen wir ihn nach der berechneten Audio-Dauer + 2s Puffer zurück ins Zuhören
+            const durationSecs = audioBuffer.duration || (text.length * 0.08);
+            const backupTimer = setTimeout(() => {
+                if (state.isSpeaking) {
+                    console.warn("Audio-Failsafe aktiviert: Zurück ins Zuhören gezwungen.");
+                    finishSpeaking();
+                }
+            }, (durationSecs * 1000) + 2000);
+
+            source.onended = () => {
+                clearTimeout(backupTimer);
+                finishSpeaking();
+            };
+            source.start(0);
+        }
+
+        function speakWithBrowserTTS(text) {
+            if (!('speechSynthesis' in window)) { finishSpeaking(); return; }
+            const utterance = new SpeechSynthesisUtterance(text);
+            window._jarvisUtterance = utterance; // Verhindert den Garbage-Collection Mute-Bug
+            utterance.lang = 'de-DE';
+            utterance.rate = 1.02;
+            
+            let hasFinished = false;
+            utterance.onend = () => {
+                if (hasFinished) return;
+                hasFinished = true;
+                finishSpeaking();
+            };
+            utterance.onerror = () => {
+                if (hasFinished) return;
+                hasFinished = true;
+                finishSpeaking();
+            };
+            
+            window.speechSynthesis.speak(utterance);
+            
+            // Safety-Timeout falls der Browser-TTS komplett einfriert
+            const estimatedDuration = Math.max(3000, text.length * 120);
+            setTimeout(() => {
+                if (!hasFinished) {
+                    window.speechSynthesis.cancel();
+                    hasFinished = true;
+                    finishSpeaking();
+                }
+            }, estimatedDuration);
+        }
+
+        function stopSpeaking() {
+            cancelActiveAudio();
+            finishSpeaking();
+        }
+
+        function finishSpeaking() {
+            state.isSpeaking = false;
+            setMicTrackEnabled(true);
+            
+            // WICHTIGER FIX: state.isListening = true entfernt, da onstart das übernimmt!
+            document.getElementById('coreStatusLabel').textContent = "HÖRT ZU";
+            
+            state.awaitingFollowUp = true;
+            clearTimeout(state.followUpTimer);
+            state.followUpTimer = setTimeout(() => {
+                state.awaitingFollowUp = false;
+            }, 15000);
+
+            clearTimeout(recognitionRestartTimer);
+            recognitionRestartTimer = setTimeout(() => { safeStartRecognition(); }, 200);
+        }
+
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+            return bytes.buffer;
+        }
+
+        async function runBootSequence() {
+            document.getElementById('autoStartSub').classList.add('hidden');
+            document.getElementById('micWatcherHint').classList.add('hidden');
+            document.getElementById('autoStartTitle').textContent = "SYSTEM BOOT INITIATED";
+            
+            const bootSeq = document.getElementById('bootSequence');
+            bootSeq.classList.remove('hidden');
+            bootSeq.classList.add('flex');
+            
+            const logEl = document.getElementById('bootLog');
+            const barEl = document.getElementById('bootProgressBar');
+            
+            logEl.innerHTML = ''; // Vorherige Logs löschen, falls Neustart erfolgt
+            
+            const steps = [
+                { t: "BOOT: Secure Kernel laden...", p: 15, d: 350 },
+                { t: "NETZWERK: Satelliten-Uplink herstellen...", p: 40, d: 450 },
+                { t: "AUDIO: Neural-Sprachmodul kalibrieren...", p: 70, d: 500 },
+                { t: "KI-CORE: Gemini-Schnittstelle autorisieren...", p: 90, d: 400 },
+                { t: "SYSTEME ONLINE. Übergebe an J.A.R.V.I.S.", p: 100, d: 600 }
+            ];
+            
+            for (let s of steps) {
+                const line = document.createElement('div');
+                line.innerHTML = `<span class="text-cyan-200 opacity-60">></span> ${s.t}`;
+                logEl.appendChild(line);
+                barEl.style.width = s.p + "%";
+                playHudSound('processing');
+                await new Promise(r => setTimeout(r, s.d));
+            }
+            await new Promise(r => setTimeout(r, 400));
+        }
+
+        function appendMessage(sender, text) {
+            const container = document.getElementById('chatContainer');
+            const wrapper = document.createElement('div');
+            const timeStr = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+            if (sender === 'user') {
+                wrapper.className = "p-3 rounded-xl bg-slate-900/80 border-r-2 border-cyan-300 text-right ml-6";
+                wrapper.innerHTML = `<div class="text-[10px] font-mono-tech text-cyan-400/70 mb-1">${state.honorific.toUpperCase()} // ${timeStr}</div><p class="text-cyan-50">${escapeHtml(text)}</p>`;
+            } else {
+                wrapper.className = "p-3 rounded-xl bg-cyan-950/40 border-l-2 border-emerald-400 text-cyan-100 mr-4";
+                wrapper.innerHTML = `<div class="text-[10px] font-mono-tech text-emerald-400 mb-1">J.A.R.V.I.S. // ${timeStr}</div><p class="leading-relaxed">${escapeHtml(text)}</p>`;
+            }
+            container.appendChild(wrapper);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearChatLog() {
+            state.chatHistory = [];
+            document.getElementById('chatContainer').innerHTML = '';
+            appendMessage('jarvis', `Speicher bereinigt, ${state.honorific}. Ich höre autonom zu.`);
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag]));
+        }
+
+        window.onload = async () => {
+            resizeCanvas();
+            drawArcReactor();
+
+            // BOOT-SEQUENZ SOFORT VISUELL STARTEN (Ohne auf Klick zu warten)
+            const bootSeq = document.getElementById('bootSequence');
+            bootSeq.classList.remove('hidden');
+            bootSeq.classList.add('flex');
+            document.getElementById('autoStartSub').classList.add('hidden');
+            document.getElementById('micWatcherHint').classList.add('hidden');
+            document.getElementById('autoStartTitle').textContent = "SYSTEM BOOT INITIATED";
+
+            // Boot-Balken asynchron laufen lassen
+            const bootPromise = runBootSequence();
+
+            try {
+                // Versuche aggressiv, das Mikrofon und Audio im Hintergrund zu aktivieren
+                ensureAudioContext(); 
+                const micSuccess = await setupMicrophoneStream();
+                if (!micSuccess) throw new Error("Mic denied initially");
+                
+                recognition = initSpeechRecognition();
+                state.initialized = true;
+                
+                // Warte, bis der visuelle Boot-Vorgang (Balken) fertig ist
+                await bootPromise;
+                
+                // Starte Spracherkennung
+                safeStartRecognition();
+                requestWakeLock();
+
+                const overlay = document.getElementById('autoStartOverlay');
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 700);
+                
+                // Versuche Audio-Sperre zu umgehen
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    await audioCtx.resume().catch(e => console.log("Browser blockiert initialen Sound"));
+                }
+                
+                playHudSound('boot');
+                const welcome = `Autonomes Sprachsystem online, ${state.honorific}. Ich höre zu.`;
+                appendMessage('jarvis', welcome);
+                
+                // TTS stürzt ohne Klick auf Handys oft ab, wir fangen den Fehler leise ab
+                speakResponse(welcome).catch(e => console.log("TTS wartet auf Sprach-Eingabe"));
+                
+            } catch (e) {
+                const sub = document.getElementById('autoStartSub');
+                if (e.message === "Mic denied initially" && (sub.innerHTML.includes("verweigert") || sub.innerHTML.includes("Sicherheitsblockade"))) {
+                    return; 
+                }
+
+                // NOTFALL-FALLBACK: Wenn das Handy/OS den Auto-Start rigoros blockiert (z.B. iPhone)
+                document.getElementById('bootSequence').classList.add('hidden');
+                document.getElementById('bootSequence').classList.remove('flex');
+                sub.classList.remove('hidden');
+                document.getElementById('autoStartTitle').textContent = "J.A.R.V.I.S. // SYSTEM PAUSIERT";
+                
+                sub.innerHTML = "Das Betriebssystem blockiert den automatischen Start.<br><br>Bitte berühren Sie <strong class='text-cyan-300 cursor-pointer underline'>einmalig den Bildschirm hier</strong>, um das System hochzufahren.";
+                
+                const unlockOnGesture = async () => {
+                    window.removeEventListener('touchstart', unlockOnGesture);
+                    window.removeEventListener('click', unlockOnGesture);
+                    
+                    ensureAudioContext();
+                    if (!recognition) recognition = initSpeechRecognition();
+                    state.initialized = true;
+                    
+                    const micSuccess = await setupMicrophoneStream();
+                    if (!micSuccess) return; 
+                    
+                    safeStartRecognition();
+                    requestWakeLock();
+                    
+                    await runBootSequence();
+                    
+                    document.getElementById('autoStartOverlay').style.opacity = '0';
+                    setTimeout(() => document.getElementById('autoStartOverlay').remove(), 700);
+                    playHudSound('boot');
+                    
+                    const welcome = `Sicherheitssperre aufgehoben. Systeme online, ${state.honorific}. Ich höre zu.`;
+                    appendMessage('jarvis', welcome);
+                    speakResponse(welcome);
+                };
+                
+                window.addEventListener('touchstart', unlockOnGesture, { once: true });
+                window.addEventListener('click', unlockOnGesture, { once: true });
+            }
+        };
+    </script>
+</body>
+</html>
